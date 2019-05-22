@@ -82,9 +82,7 @@ func (s *Service) handleDisconnectClient(client *Client) {
 		logger.WithError(err).Error("failed to close connection on client disconnect")
 	}
 
-	if err := s.leaveRooms(client); err != nil {
-		logger.WithError(err).Error("failed to leave the room on client disconnect")
-	}
+	s.leaveRooms(client)
 
 	delete(s.roomByClientId, client.Id())
 
@@ -92,20 +90,16 @@ func (s *Service) handleDisconnectClient(client *Client) {
 	return
 }
 
-func (s *Service) leaveRooms(client *Client) error {
+func (s *Service) leaveRooms(client *Client) {
 	room, ok := s.roomByClientId[client.Id()]
 	if !ok {
 		// not in any room
-		return nil
-	}
-
-	if err := room.Leave(client); err != nil {
-		return err
+		return
 	}
 
 	delete(s.roomByClientId, client.Id())
 
-	return nil
+	room.Leave(client)
 }
 
 func (s *Service) handleJoinRoom(client *Client, roomName string) {
@@ -118,19 +112,14 @@ func (s *Service) handleJoinRoom(client *Client, roomName string) {
 	})
 
 	// any existing rooms
-	if err := s.leaveRooms(client); err != nil {
-		s.logger.WithFields(logrus.Fields{
-			"olderRoom": roomName,
-			"clientId":  client.Id(),
-		}).WithError(err).Error("failed to leave the room on joining")
-	}
+	s.leaveRooms(client)
 
 	room, ok := s.roomByName[roomName]
 	if !ok {
 		// new room
 		logger.Info("creating a new room")
 
-		room = NewRoomWithName(roomName, client)
+		room = NewRoom(roomName, client)
 		s.roomByName[roomName] = room
 		s.roomByClientId[client.Id()] = room
 
@@ -162,13 +151,13 @@ func (s *Service) handleMark(client *Client, marker string) {
 	position, err := strconv.ParseInt(marker, 10, 64)
 	if err != nil {
 		logger.WithError(err).Error("invalid position")
-		client.Writeln("marker should be int")
+		client.WriteErrorMessageln("marker should be int")
 		return
 	}
 
 	if position < 1 || position > 9 {
 		logger.WithError(err).Error("invalid position")
-		client.Writeln("marker should be in range of 1-9")
+		client.WriteErrorMessageln("marker should be in range of 1-9")
 		return
 	}
 

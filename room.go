@@ -29,17 +29,14 @@ type Room struct {
 
 	results    [9]string
 	markersCnt int
+	isOver     bool
 
 	logger *logrus.Entry
 
 	mx sync.Mutex
 }
 
-func NewRoom(c *Client) *Room {
-	return NewRoomWithName(nextRoomName(), c)
-}
-
-func NewRoomWithName(name string, c *Client) *Room {
+func NewRoom(name string, c *Client) *Room {
 	return &Room{
 		c1:     c,
 		name:   name,
@@ -68,21 +65,30 @@ func (r *Room) Join(c *Client) error {
 	return errors.New("room is already occupied")
 }
 
-func (r *Room) Leave(c *Client) error {
+func (r *Room) Leave(c *Client) {
 	r.mx.Lock()
 	defer r.mx.Unlock()
 
 	if r.c1 == c {
 		r.c1 = nil
-		return nil
-	}
-
-	if r.c2 == c {
+	} else if r.c2 == c {
 		r.c2 = nil
-		return nil
+	} else {
+		c.WriteErrorMessageln("the client not part of the room")
+		return
 	}
 
-	return errors.New("the client not part of the room")
+	c.Writeln(fmt.Sprintf("you have left the room %s", r.Name()))
+
+	if r.c1 != nil {
+		r.notifyOpponentLef(r.c1)
+	}
+
+	if r.c2 != nil {
+		r.notifyOpponentLef(r.c2)
+	}
+
+	r.isOver = true // disable the game
 }
 
 func randBool() bool {
@@ -141,13 +147,13 @@ func (r *Room) AttemptMark(client *Client, position int) {
 	r.mx.Lock()
 	defer r.mx.Unlock()
 
-	if r.isOver() {
+	if r.isOver {
 		client.Writeln("game is over, no further turns")
 		return
 	}
 
 	if !r.isClientTurn(client) {
-		client.Writeln("please, hold on, your opponent is still making a turn")
+		client.Writeln("please, hold on, your opponent is still thinking")
 		return
 	}
 
@@ -166,16 +172,13 @@ func (r *Room) AttemptMark(client *Client, position int) {
 	r.results[index] = marker
 	r.markersCnt++
 
-	if r.isOver() {
+	if r.markersCnt >= 9 {
+		r.isOver = true
 		r.notifyOnResults()
 	} else {
 		r.swapTurn()
 		r.notifyClients()
 	}
-}
-
-func (r *Room) isOver() bool {
-	return r.markersCnt >= 9
 }
 
 func (r *Room) swapTurn() {
@@ -218,6 +221,10 @@ func (r *Room) notifyOnWait(client *Client) {
 
 func (r *Room) notifyGameOver(client *Client) {
 	client.Writeln("game over")
+}
+
+func (r *Room) notifyOpponentLef(client *Client) {
+	client.Writeln("opponent has left, game is over")
 }
 
 func (r *Room) notifyClients() {
