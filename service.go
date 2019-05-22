@@ -3,12 +3,14 @@ package ttt
 import (
 	"context"
 	"github.com/sirupsen/logrus"
+	"net"
 	"sync"
 )
 
 type Service struct {
-	rooms   map[string]*Room
-	clients []*Client
+	clientById     map[int64]*Client
+	roomByName     map[string]*Room
+	roomByClientId map[int64]*Room
 
 	logger *logrus.Entry
 
@@ -16,50 +18,85 @@ type Service struct {
 }
 
 func NewService() *Service {
-	return &Service{rooms: make(map[string]*Room), logger: logrus.WithField("name", "service")}
+	return &Service{
+		clientById:     make(map[int64]*Client),
+		roomByName:     make(map[string]*Room),
+		roomByClientId: make(map[int64]*Room),
+
+		logger: logrus.WithField("name", "service"),
+	}
 }
 
-func (s *Service) Register(ctx context.Context, client *Client) {
+func (s *Service) AddClient(ctx context.Context, conn net.Conn) {
 	s.mx.Lock()
 	defer s.mx.Unlock()
 
-	s.clients = append(s.clients, client)
+	client := NewClient(ctx, conn, s)
 
-	go client.Listen(ctx)
+	s.clientById[client.id] = client
 }
 
-func (s *Service) Start(name string, client *Client) error {
+func (s *Service) DisconnectClient(client *Client) {
 	s.mx.Lock()
 	defer s.mx.Unlock()
 
-	r, ok := s.rooms[name]
+	logger := s.logger.WithField("clientId", client.Id())
+
+	delete(s.clientById, client.Id())
+
+	if err := client.Close(); err != nil {
+		logger.WithError(err).Error("failed to close connection on client disconnect")
+	}
+
+	room, ok := s.roomByClientId[client.Id()]
+	if !ok {
+		// not in any room
+		logger.Info("disconnected")
+		return
+	}
+
+	if err := room.Leave(client); err != nil {
+		logger.WithField("roomName", room.Name()).WithError(err).Error("failed to leave the room on client disconnect")
+	}
+
+	logger.Info("disconnected")
+	return
+}
+
+func (s *Service) AddRoom(room *Room) { // todo: review
+	s.mx.Lock()
+	defer s.mx.Unlock()
+
+	s.roomByName[room.Name()] = room
+}
+
+func (s *Service) RemoveRoom(room *Room) { // todo: review
+	s.mx.Lock()
+	defer s.mx.Unlock()
+
+	delete(s.roomByName, room.Name())
+}
+
+func (s *Service) JoinClientToRoom(name string, client *Client) error {
+	s.mx.Lock()
+	defer s.mx.Unlock()
+
+	r, ok := s.roomByName[name]
 
 	if !ok {
 		room := NewRoomWithName(name, client)
-		s.rooms[name] = room
+		s.roomByName[name] = room
 		return nil
 	}
 
 	return r.Join(client)
 }
 
-func (s *Service) ListFree() (r []*Room) {
-	s.mx.Lock()
-	defer s.mx.Unlock()
-
-	for _, v := range s.rooms {
-		if v.CanJoin() {
-			r = append(r, v)
-		}
-	}
-	return
-}
-
 func (s *Service) Close() {
 	s.mx.Lock()
 	defer s.mx.Unlock()
 
-	for _, v := range s.rooms {
+	for _, v := range s.roomByName {
 		err := v.Close()
 		if err != nil {
 			s.logger.WithError(err).Error("failed to close a room")
