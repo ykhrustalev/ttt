@@ -35,6 +35,9 @@ func (s *Service) ConnectClient(ctx context.Context, conn net.Conn) {
 	client := NewClient(ctx, conn, s)
 
 	s.clientById[client.id] = client
+
+	client.Writeln("hello, use `join x` to join or create a room, type `quit` to exit")
+	client.Writeln("")
 }
 
 var quitRegex = regexp.MustCompile("^(?i)(quit).*$")
@@ -123,18 +126,18 @@ func (s *Service) joinClientToRoom(client *Client, roomName string) {
 		return
 	}
 
-	err := room.Join(client)
-	if err != nil {
-		logger.WithError(err).Error("failed to join the room")
-
+	if err := room.Join(client); err != nil {
 		client.WriteErrorln(err)
+		logger.WithError(err).Error("failed to join the room")
 		return
 	}
 
 	s.roomByClientId[client.Id()] = room
-	client.Writeln("joined the existing room")
 
+	client.Writeln("joined the existing room")
 	logger.Info("joined the existing room")
+
+	room.StartIfReady()
 }
 
 func (s *Service) Close() {
