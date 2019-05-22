@@ -81,11 +81,11 @@ func (r *Room) Leave(c *Client) {
 	c.Writeln(fmt.Sprintf("you have left the room %s", r.Name()))
 
 	if r.c1 != nil {
-		r.notifyOpponentLef(r.c1)
+		r.notifyOpponentLeft(r.c1)
 	}
 
 	if r.c2 != nil {
-		r.notifyOpponentLef(r.c2)
+		r.notifyOpponentLeft(r.c2)
 	}
 
 	r.isOver = true // disable the game
@@ -228,8 +228,12 @@ func (r *Room) notifyGameOver(client *Client) {
 	client.Writeln("game over")
 }
 
-func (r *Room) notifyOpponentLef(client *Client) {
-	client.Writeln("opponent has left, game is over")
+func (r *Room) notifyOpponentLeft(client *Client) {
+	if !r.isOver {
+		client.Writeln("opponent has left, game is over")
+	} else {
+		client.Writeln("opponent has left")
+	}
 }
 
 func (r *Room) notifyClients() {
