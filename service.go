@@ -5,6 +5,7 @@ import (
 	"github.com/sirupsen/logrus"
 	"net"
 	"regexp"
+	"strconv"
 	"sync"
 )
 
@@ -41,8 +42,8 @@ func (s *Service) ConnectClient(ctx context.Context, conn net.Conn) {
 }
 
 var quitRegex = regexp.MustCompile("^(?i)(quit).*$")
-var joinRegex = regexp.MustCompile("^(?i)(join) (\\w+)$")
-var markRegex = regexp.MustCompile("^(?i)(mark) (\\w+)$")
+var joinRegex = regexp.MustCompile("^(?i)(join)\\s+(\\w+)\\s*$")
+var markRegex = regexp.MustCompile("^(?i)(mark)\\s+(\\w+)\\s*$")
 
 func (s *Service) HandleMessage(client *Client, message string) {
 	//
@@ -50,20 +51,26 @@ func (s *Service) HandleMessage(client *Client, message string) {
 	//
 
 	if quitRegex.MatchString(message) {
-		s.disconnectClient(client)
+		s.handleDisconnectClient(client)
 		return
 	}
 
 	if joinRegex.MatchString(message) {
-		roomName := joinRegex.FindAllStringSubmatch(message, -1)[0][0]
-		s.joinClientToRoom(client, roomName)
+		roomName := joinRegex.FindAllStringSubmatch(message, -1)[0][2]
+		s.handleJoinRoom(client, roomName)
+		return
+	}
+
+	if markRegex.MatchString(message) {
+		marker := markRegex.FindAllStringSubmatch(message, -1)[0][2]
+		s.handleMark(client, marker)
 		return
 	}
 
 	client.WriteErrorMessageln("unknown command")
 }
 
-func (s *Service) disconnectClient(client *Client) {
+func (s *Service) handleDisconnectClient(client *Client) {
 	s.mx.Lock()
 	defer s.mx.Unlock()
 
@@ -75,47 +82,52 @@ func (s *Service) disconnectClient(client *Client) {
 		logger.WithError(err).Error("failed to close connection on client disconnect")
 	}
 
-	room, ok := s.roomByClientId[client.Id()]
-	if !ok {
-		// not in any room
-		logger.Info("disconnected")
-		return
+	if err := s.leaveRooms(client); err != nil {
+		logger.WithError(err).Error("failed to leave the room on client disconnect")
 	}
 
-	if err := room.Leave(client); err != nil {
-		logger.WithField("roomName", room.Name()).WithError(err).Error("failed to leave the room on client disconnect")
-	}
+	delete(s.roomByClientId, client.Id())
 
 	logger.Info("disconnected")
 	return
 }
 
-func (s *Service) AddRoom(room *Room) { // todo: review
-	s.mx.Lock()
-	defer s.mx.Unlock()
+func (s *Service) leaveRooms(client *Client) error {
+	room, ok := s.roomByClientId[client.Id()]
+	if !ok {
+		// not in any room
+		return nil
+	}
 
-	s.roomByName[room.Name()] = room
+	if err := room.Leave(client); err != nil {
+		return err
+	}
+
+	delete(s.roomByClientId, client.Id())
+
+	return nil
 }
 
-func (s *Service) RemoveRoom(room *Room) { // todo: review
+func (s *Service) handleJoinRoom(client *Client, roomName string) {
 	s.mx.Lock()
 	defer s.mx.Unlock()
-
-	delete(s.roomByName, room.Name())
-}
-
-func (s *Service) joinClientToRoom(client *Client, roomName string) {
-	s.mx.Lock()
-	defer s.mx.Unlock()
-
-	room, ok := s.roomByName[roomName]
 
 	logger := s.logger.WithFields(logrus.Fields{
 		"roomName": roomName,
 		"clientId": client.Id(),
 	})
 
+	// any existing rooms
+	if err := s.leaveRooms(client); err != nil {
+		s.logger.WithFields(logrus.Fields{
+			"olderRoom": roomName,
+			"clientId":  client.Id(),
+		}).WithError(err).Error("failed to leave the room on joining")
+	}
+
+	room, ok := s.roomByName[roomName]
 	if !ok {
+		// new room
 		logger.Info("creating a new room")
 
 		room = NewRoomWithName(roomName, client)
@@ -126,6 +138,7 @@ func (s *Service) joinClientToRoom(client *Client, roomName string) {
 		return
 	}
 
+	// existing room
 	if err := room.Join(client); err != nil {
 		client.WriteErrorln(err)
 		logger.WithError(err).Error("failed to join the room")
@@ -140,12 +153,41 @@ func (s *Service) joinClientToRoom(client *Client, roomName string) {
 	room.StartIfReady()
 }
 
+func (s *Service) handleMark(client *Client, marker string) {
+	s.mx.Lock()
+	defer s.mx.Unlock()
+
+	logger := s.logger.WithField("clientId", client.Id())
+
+	position, err := strconv.ParseInt(marker, 10, 64)
+	if err != nil {
+		logger.WithError(err).Error("invalid position")
+		client.Writeln("marker should be int")
+		return
+	}
+
+	if position < 1 || position > 9 {
+		logger.WithError(err).Error("invalid position")
+		client.Writeln("marker should be in range of 1-9")
+		return
+	}
+
+	room, ok := s.roomByClientId[client.Id()]
+	if !ok {
+		logger.Error("not in any room")
+		client.WriteErrorMessageln("you don't belong to any room yet")
+		return
+	}
+
+	room.AttemptMark(client, int(position))
+}
+
 func (s *Service) Close() {
 	s.mx.Lock()
 	defer s.mx.Unlock()
 
-	for _, v := range s.roomByName {
-		err := v.Close()
+	for _, room := range s.roomByName {
+		err := room.Close()
 		if err != nil {
 			s.logger.WithError(err).Error("failed to close a room")
 		}

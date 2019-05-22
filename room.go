@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"github.com/sirupsen/logrus"
 	"math/rand"
+	"strings"
 	"sync"
 )
 
@@ -26,7 +27,8 @@ type Room struct {
 
 	c1Turn bool
 
-	results [9]string
+	results    [9]string
+	markersCnt int
 
 	logger *logrus.Entry
 
@@ -104,10 +106,10 @@ func (r *Room) start() {
 	if randBool() {
 		r.c1Turn = true
 		r.c1Marker = "x"
-		r.c2Marker = "0"
+		r.c2Marker = "o"
 	} else {
 		r.c1Turn = false
-		r.c1Marker = "0"
+		r.c1Marker = "o"
 		r.c2Marker = "x"
 	}
 
@@ -121,20 +123,129 @@ func (r *Room) start() {
 		waiting = r.c1
 	}
 
-	current.Writeln("game started")
-	current.Writeln("your turn")
+	current.Writeln("room is full, game starts")
+	waiting.Writeln("room is full, game starts")
 
-	waiting.Writeln("game started")
-	waiting.Writeln("waiting for the opponent to make his turn")
+	r.notifyClients()
+}
+
+func (r *Room) isClientTurn(client *Client) bool {
+	if r.c1Turn {
+		return r.c1 == client
+	}
+
+	return r.c2 == client
+}
+
+func (r *Room) AttemptMark(client *Client, position int) {
+	r.mx.Lock()
+	defer r.mx.Unlock()
+
+	if r.isOver() {
+		client.Writeln("game is over, no further turns")
+		return
+	}
+
+	if !r.isClientTurn(client) {
+		client.Writeln("please, hold on, your opponent is still making a turn")
+		return
+	}
+
+	index := position - 1
+
+	if r.results[index] != "" {
+		client.Writeln("this field is already occupied")
+		return
+	}
+
+	marker := r.c2Marker
+	if r.c1Turn {
+		marker = r.c1Marker
+	}
+
+	r.results[index] = marker
+	r.markersCnt++
+
+	if r.isOver() {
+		r.notifyOnResults()
+	} else {
+		r.swapTurn()
+		r.notifyClients()
+	}
+}
+
+func (r *Room) isOver() bool {
+	return r.markersCnt >= 9
+}
+
+func (r *Room) swapTurn() {
+	r.c1Turn = !r.c1Turn
+}
+
+func replaceEmpty(row []string) (r []string) {
+	for _, x := range row {
+		if x == "" {
+			r = append(r, ".")
+		} else {
+			r = append(r, x)
+		}
+	}
+	return
+}
+func buildRow(row []string) string {
+	return strings.Join(replaceEmpty(row), "|")
+}
+
+func (r *Room) printForClient(client *Client) {
+	msg := strings.Join([]string{
+		buildRow(r.results[0:3]),
+		"-----",
+		buildRow(r.results[3:6]),
+		"-----",
+		buildRow(r.results[6:9]),
+	}, "\n")
+
+	client.Writeln(msg)
+}
+
+func (r *Room) notifyOnTurn(client *Client) {
+	client.Writeln("your turn")
+}
+
+func (r *Room) notifyOnWait(client *Client) {
+	client.Writeln("waiting for the opponent to make his turn")
+}
+
+func (r *Room) notifyGameOver(client *Client) {
+	client.Writeln("game over")
+}
+
+func (r *Room) notifyClients() {
+	r.printForClient(r.c1)
+	r.printForClient(r.c2)
+
+	if r.c1Turn {
+		r.notifyOnTurn(r.c1)
+		r.notifyOnWait(r.c2)
+	} else {
+		r.notifyOnTurn(r.c2)
+		r.notifyOnWait(r.c1)
+	}
+}
+
+func (r *Room) notifyOnResults() {
+	r.printForClient(r.c1)
+	r.printForClient(r.c2)
+	r.notifyGameOver(r.c1)
+	r.notifyGameOver(r.c2)
 }
 
 func (r *Room) Close() error {
 	r.mx.Lock()
 	defer r.mx.Unlock()
 
-	for _, c := range []*Client{r.c1, r.c2} {
-		_ = c.Close()
-	}
+	_ = r.c1.Close()
+	_ = r.c2.Close()
 
 	return nil
 }

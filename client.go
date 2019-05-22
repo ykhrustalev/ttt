@@ -105,9 +105,6 @@ func (c *Client) listen(ctx context.Context) {
 }
 
 func (c *Client) Close() error {
-	c.mx.Lock()
-	defer c.mx.Unlock()
-
 	return c.conn.Close()
 }
 
