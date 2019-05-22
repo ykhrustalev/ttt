@@ -7,15 +7,12 @@ import (
 	"github.com/sirupsen/logrus"
 	"io"
 	"net"
-	"regexp"
-	"strings"
 	"sync"
 )
 
 type Client struct {
 	id      int64
 	conn    net.Conn
-	room    *Room
 	service *Service
 
 	reader *bufio.Reader
@@ -71,9 +68,10 @@ func (c *Client) listen(ctx context.Context) {
 				return
 			}
 
-			c.handleMessage(string(line))
+			message := string(line)
+			c.service.HandleMessage(c, message)
 
-			c.logger.WithField("message", string(line)).Info("new message")
+			c.logger.Infof("client says: %s", message)
 		}
 	}()
 
@@ -113,35 +111,12 @@ func (c *Client) Close() error {
 	return c.conn.Close()
 }
 
-var quitRegex = regexp.MustCompile("^(?i)(quit).*$")
-var joinRegex = regexp.MustCompile("^(?i)(join) (\\w+)$")
-var markRegex = regexp.MustCompile("^(?i)(mark) (\\w+)$")
+func (c *Client) WriteErrorln(err error) {
+	c.WriteErrorMessageln(err.Error())
+}
 
-func (c *Client) handleMessage(message string) {
-	// todo: state in a single place
-	message = strings.ToLower(message)
-
-	if quitRegex.MatchString(message) {
-		c.service.DisconnectClient(c)
-		return
-	}
-
-	if joinRegex.MatchString(message) {
-		marker := joinRegex.FindAllStringSubmatch(message, -1)[0][0]
-
-		c.writer.WriteString("joining " + marker)
-		c.writer.Flush()
-
-		err := c.service.JoinClientToRoom(marker, c)
-		if err != nil {
-			c.writer.WriteString("error " + err.Error())
-			c.writer.Flush()
-		}
-
-		return
-	}
-
-	return
+func (c *Client) WriteErrorMessageln(message string) {
+	c.Writeln(fmt.Sprintf("err: %s", message))
 }
 
 func (c *Client) Writeln(message string) {
@@ -151,5 +126,10 @@ func (c *Client) Writeln(message string) {
 	_, err := c.writer.WriteString(message + "\n")
 	if err != nil {
 		c.logger.WithError(err).WithField("message", message).Error("failed to write the message")
+	}
+
+	err = c.writer.Flush()
+	if err != nil {
+		c.logger.WithError(err).WithField("message", message).Error("failed to flush the message")
 	}
 }
