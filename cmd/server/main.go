@@ -6,11 +6,14 @@ import (
 	"flag"
 	"fmt"
 	"github.com/sirupsen/logrus"
-	"github.com/ykhrustalev/ttt/apps"
+	"github.com/ykhrustalev/ttt"
 	"io"
 	"log"
 	"net"
+	"os"
+	"os/signal"
 	"sync"
+	"syscall"
 )
 
 func main() {
@@ -28,13 +31,30 @@ func init() {
 	flag.Parse()
 }
 
+func initSignals(onQuit func()) {
+	quit := make(chan os.Signal, 1)
+	signal.Notify(quit, syscall.SIGINT, syscall.SIGTERM)
+
+	var wg sync.WaitGroup
+
+	wg.Add(1)
+	go func() {
+		wg.Done()
+		<-quit
+		fmt.Println("quiting")
+		onQuit()
+	}()
+
+	wg.Wait()
+}
+
 func run() error {
 	logger := logrus.WithField("name", "server")
 
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 
-	apps.InitSignals(cancel)
+	initSignals(cancel)
 
 	ln, err := net.Listen("tcp", arguments.Listen)
 	if err != nil {
@@ -49,6 +69,9 @@ func run() error {
 	go func() {
 		wg.Done()
 
+		service := ttt.NewService()
+		defer service.Close()
+
 		for {
 			logger.Debug("listen loop", ln)
 
@@ -59,7 +82,9 @@ func run() error {
 				return
 			}
 
-			go handle(ctx, conn)
+			service.Register(ctx, ttt.NewClient(conn))
+
+			//go handle(ctx, conn)
 		}
 	}()
 
