@@ -27,7 +27,7 @@ func NewService() *Service {
 	}
 }
 
-func (s *Service) AddClient(ctx context.Context, conn net.Conn) {
+func (s *Service) ConnectClient(ctx context.Context, conn net.Conn) {
 	s.mx.Lock()
 	defer s.mx.Unlock()
 

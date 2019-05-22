@@ -80,7 +80,7 @@ func run() error {
 				return
 			}
 
-			service.AddClient(ctx, conn)
+			service.ConnectClient(ctx, conn)
 		}
 	}()
 
