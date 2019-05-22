@@ -27,7 +27,7 @@ type Room struct {
 
 	c1Turn bool
 
-	results    [9]string
+	board      [9]string
 	markersCnt int
 	isOver     bool
 
@@ -159,7 +159,7 @@ func (r *Room) AttemptMark(client *Client, position int) {
 
 	index := position - 1
 
-	if r.results[index] != "" {
+	if r.board[index] != "" {
 		client.Writeln("this field is already occupied")
 		return
 	}
@@ -169,8 +169,13 @@ func (r *Room) AttemptMark(client *Client, position int) {
 		marker = r.c1Marker
 	}
 
-	r.results[index] = marker
+	r.board[index] = marker
 	r.markersCnt++
+
+	if r.hasWinner() {
+		r.isOver = true
+		return
+	}
 
 	if r.markersCnt >= 9 {
 		r.isOver = true
@@ -185,27 +190,27 @@ func (r *Room) swapTurn() {
 	r.c1Turn = !r.c1Turn
 }
 
-func replaceEmpty(row []string) (r []string) {
+func combineRow(row []string) (r []string) {
 	for _, x := range row {
 		if x == "" {
-			r = append(r, ".")
+			r = append(r, " . ")
 		} else {
-			r = append(r, x)
+			r = append(r, " "+x+" ")
 		}
 	}
 	return
 }
 func buildRow(row []string) string {
-	return strings.Join(replaceEmpty(row), "|")
+	return strings.Join(combineRow(row), "|")
 }
 
 func (r *Room) printForClient(client *Client) {
 	msg := strings.Join([]string{
-		buildRow(r.results[0:3]),
-		"-----",
-		buildRow(r.results[3:6]),
-		"-----",
-		buildRow(r.results[6:9]),
+		buildRow(r.board[0:3]),
+		"-----------",
+		buildRow(r.board[3:6]),
+		"-----------",
+		buildRow(r.board[6:9]),
 	}, "\n")
 
 	client.Writeln(msg)
@@ -245,6 +250,44 @@ func (r *Room) notifyOnResults() {
 	r.printForClient(r.c2)
 	r.notifyGameOver(r.c1)
 	r.notifyGameOver(r.c2)
+}
+
+func (r *Room) notifyOnVictory(winner, looser *Client) {
+	r.printForClient(r.c1)
+	r.printForClient(r.c2)
+
+	winner.Writeln("congratulations, you have won")
+	looser.Writeln("you have lost")
+}
+
+func (r *Room) hasWinner() bool {
+	seqs := [][]string{
+		{r.board[0], r.board[1], r.board[2]},
+		{r.board[3], r.board[4], r.board[5]},
+		{r.board[6], r.board[7], r.board[8]},
+		{r.board[0], r.board[3], r.board[6]},
+		{r.board[1], r.board[4], r.board[7]},
+		{r.board[2], r.board[5], r.board[8]},
+		{r.board[0], r.board[4], r.board[8]},
+		{r.board[2], r.board[4], r.board[6]},
+	}
+
+	for _, seq := range seqs {
+		if isEqual(seq) {
+			if seq[0] == r.c1Marker {
+				r.notifyOnVictory(r.c1, r.c2)
+			} else if seq[0] == r.c2Marker {
+				r.notifyOnVictory(r.c2, r.c1)
+			}
+			return true
+		}
+	}
+
+	return false
+}
+
+func isEqual(a []string) (r bool) {
+	return a[0] != "" && a[0] == a[1] && a[0] == a[2]
 }
 
 func (r *Room) Close() error {
