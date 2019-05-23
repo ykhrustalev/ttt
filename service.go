@@ -15,8 +15,6 @@ type Service struct {
 	roomByClientId sync.Map
 
 	logger *logrus.Entry
-
-	mx sync.Mutex
 }
 
 func NewService() *Service {
@@ -26,9 +24,6 @@ func NewService() *Service {
 }
 
 func (s *Service) ConnectClient(ctx context.Context, conn net.Conn) {
-	s.mx.Lock()
-	defer s.mx.Unlock()
-
 	client := NewClient(ctx, conn, s)
 
 	s.clientById.Store(client.id, client)
@@ -71,9 +66,6 @@ func (s *Service) HandleDisconnectClient(client *Client) {
 }
 
 func (s *Service) handleDisconnectClient(client *Client) {
-	s.mx.Lock()
-	defer s.mx.Unlock()
-
 	logger := s.logger.WithField("clientId", client.Id())
 
 	s.clientById.Delete(client.Id())
@@ -103,9 +95,6 @@ func (s *Service) leaveRooms(client *Client) {
 }
 
 func (s *Service) handleJoinRoom(client *Client, roomName string) {
-	s.mx.Lock()
-	defer s.mx.Unlock()
-
 	logger := s.logger.WithFields(logrus.Fields{
 		"roomName": roomName,
 		"clientId": client.Id(),
@@ -143,9 +132,6 @@ func (s *Service) handleJoinRoom(client *Client, roomName string) {
 }
 
 func (s *Service) handleMark(client *Client, marker string) {
-	s.mx.Lock()
-	defer s.mx.Unlock()
-
 	logger := s.logger.WithField("clientId", client.Id())
 
 	position, err := strconv.ParseInt(marker, 10, 64)
@@ -172,9 +158,6 @@ func (s *Service) handleMark(client *Client, marker string) {
 }
 
 func (s *Service) Close() {
-	s.mx.Lock()
-	defer s.mx.Unlock()
-
 	s.roomByName.Range(func(_, value interface{}) bool {
 		room := value.(*Room)
 
