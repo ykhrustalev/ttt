@@ -135,28 +135,50 @@ func TestRoom(t *testing.T) {
 		})
 
 		t.Run("ready", func(t *testing.T) {
+			for i := 0; i < 20; i++ {
+
+				withFullRoom(t, func(room *ttt.Room, c1 *mockClient, c2 *mockClient) {
+					c1.On("Writeln", "room is full, game starts").Once()
+					c2.On("Writeln", "room is full, game starts").Once()
+
+					c1.On("Writeln", ` . | . | . 
+-----------
+ . | . | . 
+-----------
+ . | . | . `).Once()
+					c2.On("Writeln", ` . | . | . 
+-----------
+ . | . | . 
+-----------
+ . | . | . `).Once()
+
+					c1.On("Writeln", "your turn").Maybe()
+					c2.On("Writeln", "your turn").Maybe()
+
+					c1.On("Writeln", "waiting for the opponent to make his turn").Maybe()
+					c2.On("Writeln", "waiting for the opponent to make his turn").Maybe()
+
+					room.StartIfReady()
+				})
+			}
+		})
+	})
+
+	t.Run("AttemptMark", func(t *testing.T) {
+		t.Run("not in turn", func(t *testing.T) {
 			withFullRoom(t, func(room *ttt.Room, c1 *mockClient, c2 *mockClient) {
-				c1.On("Writeln", "room is full, game starts").Once()
-				c2.On("Writeln", "room is full, game starts").Once()
 
-				c1.On("Writeln", ` . | . | . 
------------
- . | . | . 
------------
- . | . | . `).Once()
-				c2.On("Writeln", ` . | . | . 
------------
- . | . | . 
------------
- . | . | . `).Once()
+				test := func(c *mockClient) {
+					c.On("Writeln", "please, hold on, your opponent is still thinking").Once()
 
-				c1.On("Writeln", "your turn").Maybe()
-				c2.On("Writeln", "your turn").Maybe()
+					room.AttemptMark(c, 1)
+				}
 
-				c1.On("Writeln", "waiting for the opponent to make his turn").Maybe()
-				c2.On("Writeln", "waiting for the opponent to make his turn").Maybe()
-
-				room.StartIfReady()
+				if room.IsClientTurn(c1) {
+					test(c2)
+				} else {
+					test(c1)
+				}
 			})
 		})
 	})

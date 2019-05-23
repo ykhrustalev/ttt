@@ -136,6 +136,13 @@ func (r *Room) start() {
 	r.notifyClients()
 }
 
+func (r *Room) IsClientTurn(client Client) bool {
+	r.mx.Lock()
+	defer r.mx.Unlock()
+
+	return r.isClientTurn(client)
+}
+
 func (r *Room) isClientTurn(client Client) bool {
 	if r.c1Turn {
 		return r.c1 == client
