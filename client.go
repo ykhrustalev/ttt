@@ -63,6 +63,7 @@ func (c *Client) listen(ctx context.Context) {
 		for {
 			line, _, err := c.reader.ReadLine() // todo: handle line split
 			if err != nil {
+				c.service.HandleDisconnectClient(c)
 				workerErr <- err
 				close(workerErr)
 				return

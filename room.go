@@ -10,13 +10,6 @@ import (
 	"sync"
 )
 
-var roomsCnt = 0
-
-func nextRoomName() string {
-	roomsCnt++
-	return fmt.Sprintf("%d", roomsCnt)
-}
-
 type Room struct {
 	name string
 	c1   *Client
@@ -51,6 +44,10 @@ func (r *Room) Name() string {
 func (r *Room) Join(c *Client) error {
 	r.mx.Lock()
 	defer r.mx.Unlock()
+
+	if r.isOver {
+		return errors.New("game is over in this room")
+	}
 
 	if r.c1 == nil {
 		r.c1 = c
