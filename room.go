@@ -12,8 +12,8 @@ import (
 
 type Room struct {
 	name string
-	c1   *Client
-	c2   *Client
+	c1   Client
+	c2   Client
 
 	c1Marker string
 	c2Marker string
@@ -29,7 +29,7 @@ type Room struct {
 	mx sync.Mutex
 }
 
-func NewRoom(name string, c *Client) *Room {
+func NewRoom(name string, c Client) *Room {
 	return &Room{
 		c1:     c,
 		name:   name,
@@ -41,12 +41,16 @@ func (r *Room) Name() string {
 	return r.name
 }
 
-func (r *Room) Join(c *Client) error {
+func (r *Room) Join(c Client) error {
 	r.mx.Lock()
 	defer r.mx.Unlock()
 
 	if r.isOver {
 		return errors.New("game is over in this room")
+	}
+
+	if r.c1 == c || r.c2 == c {
+		return errors.New("already in the room")
 	}
 
 	if r.c1 == nil {
@@ -62,7 +66,7 @@ func (r *Room) Join(c *Client) error {
 	return errors.New("room is already occupied")
 }
 
-func (r *Room) Leave(c *Client) {
+func (r *Room) Leave(c Client) {
 	r.mx.Lock()
 	defer r.mx.Unlock()
 
@@ -116,7 +120,7 @@ func (r *Room) start() {
 		r.c2Marker = "x"
 	}
 
-	var current, waiting *Client
+	var current, waiting Client
 
 	if r.c1Turn {
 		current = r.c1
@@ -132,7 +136,7 @@ func (r *Room) start() {
 	r.notifyClients()
 }
 
-func (r *Room) isClientTurn(client *Client) bool {
+func (r *Room) isClientTurn(client Client) bool {
 	if r.c1Turn {
 		return r.c1 == client
 	}
@@ -140,7 +144,7 @@ func (r *Room) isClientTurn(client *Client) bool {
 	return r.c2 == client
 }
 
-func (r *Room) AttemptMark(client *Client, position int) {
+func (r *Room) AttemptMark(client Client, position int) {
 	r.mx.Lock()
 	defer r.mx.Unlock()
 
@@ -201,7 +205,7 @@ func buildRow(row []string) string {
 	return strings.Join(combineRow(row), "|")
 }
 
-func (r *Room) printForClient(client *Client) {
+func (r *Room) printForClient(client Client) {
 	msg := strings.Join([]string{
 		buildRow(r.board[0:3]),
 		"-----------",
@@ -213,19 +217,19 @@ func (r *Room) printForClient(client *Client) {
 	client.Writeln(msg)
 }
 
-func (r *Room) notifyOnTurn(client *Client) {
+func (r *Room) notifyOnTurn(client Client) {
 	client.Writeln("your turn")
 }
 
-func (r *Room) notifyOnWait(client *Client) {
+func (r *Room) notifyOnWait(client Client) {
 	client.Writeln("waiting for the opponent to make his turn")
 }
 
-func (r *Room) notifyGameOver(client *Client) {
+func (r *Room) notifyGameOver(client Client) {
 	client.Writeln("game over")
 }
 
-func (r *Room) notifyOpponentLeft(client *Client) {
+func (r *Room) notifyOpponentLeft(client Client) {
 	if !r.isOver {
 		client.Writeln("opponent has left, game is over")
 	} else {
@@ -253,7 +257,7 @@ func (r *Room) notifyOnResults() {
 	r.notifyGameOver(r.c2)
 }
 
-func (r *Room) notifyOnVictory(winner, looser *Client) {
+func (r *Room) notifyOnVictory(winner, looser Client) {
 	r.printForClient(r.c1)
 	r.printForClient(r.c2)
 

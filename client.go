@@ -10,7 +10,15 @@ import (
 	"sync"
 )
 
-type Client struct {
+type Client interface {
+	Id() int64
+	Close() error
+	WriteErrorln(err error)
+	WriteErrorMessageln(message string)
+	Writeln(message string)
+}
+
+type NetworkClient struct {
 	id      int64
 	conn    net.Conn
 	service *Service
@@ -25,11 +33,11 @@ type Client struct {
 
 var clientCnt int64
 
-func NewClient(ctx context.Context, conn net.Conn, service *Service) *Client {
+func NewClient(ctx context.Context, conn net.Conn, service *Service) Client {
 	clientCnt++
 	name := fmt.Sprintf("client-%d", clientCnt)
 
-	c := &Client{
+	c := &NetworkClient{
 		id:      clientCnt,
 		conn:    conn,
 		reader:  bufio.NewReader(conn),
@@ -43,11 +51,11 @@ func NewClient(ctx context.Context, conn net.Conn, service *Service) *Client {
 	return c
 }
 
-func (c *Client) Id() int64 {
+func (c *NetworkClient) Id() int64 {
 	return c.id
 }
 
-func (c *Client) listen(ctx context.Context) {
+func (c *NetworkClient) listen(ctx context.Context) {
 	defer c.conn.Close()
 
 	c.logger.Info("new client")
@@ -105,19 +113,19 @@ func (c *Client) listen(ctx context.Context) {
 	}
 }
 
-func (c *Client) Close() error {
+func (c *NetworkClient) Close() error {
 	return c.conn.Close()
 }
 
-func (c *Client) WriteErrorln(err error) {
+func (c *NetworkClient) WriteErrorln(err error) {
 	c.WriteErrorMessageln(err.Error())
 }
 
-func (c *Client) WriteErrorMessageln(message string) {
+func (c *NetworkClient) WriteErrorMessageln(message string) {
 	c.Writeln(fmt.Sprintf("err: %s", message))
 }
 
-func (c *Client) Writeln(message string) {
+func (c *NetworkClient) Writeln(message string) {
 	c.mx.Lock()
 	defer c.mx.Unlock()
 

@@ -26,7 +26,7 @@ func NewService() *Service {
 func (s *Service) ConnectClient(ctx context.Context, conn net.Conn) {
 	client := NewClient(ctx, conn, s)
 
-	s.clientById.Store(client.id, client)
+	s.clientById.Store(client.Id(), client)
 
 	client.Writeln("hello, use `join x` to join or create a room, type `quit` to exit")
 	client.Writeln("")
@@ -36,7 +36,7 @@ var quitRegex = regexp.MustCompile("^(?i)(quit).*$")
 var joinRegex = regexp.MustCompile("^(?i)(join)\\s+(\\w+)\\s*$")
 var markRegex = regexp.MustCompile("^(?i)(mark)\\s+(\\w+)\\s*$")
 
-func (s *Service) HandleMessage(client *Client, message string) {
+func (s *Service) HandleMessage(client Client, message string) {
 	//
 	// no locks in this func
 	//
@@ -61,11 +61,11 @@ func (s *Service) HandleMessage(client *Client, message string) {
 	client.WriteErrorMessageln("unknown command")
 }
 
-func (s *Service) HandleDisconnectClient(client *Client) {
+func (s *Service) HandleDisconnectClient(client Client) {
 	s.handleDisconnectClient(client)
 }
 
-func (s *Service) handleDisconnectClient(client *Client) {
+func (s *Service) handleDisconnectClient(client Client) {
 	logger := s.logger.WithField("clientId", client.Id())
 
 	s.clientById.Delete(client.Id())
@@ -82,7 +82,7 @@ func (s *Service) handleDisconnectClient(client *Client) {
 	return
 }
 
-func (s *Service) leaveRooms(client *Client) {
+func (s *Service) leaveRooms(client Client) {
 	room, ok := s.roomByClientId.Load(client.Id())
 	if !ok {
 		// not in any room
@@ -94,7 +94,7 @@ func (s *Service) leaveRooms(client *Client) {
 	room.(*Room).Leave(client)
 }
 
-func (s *Service) handleJoinRoom(client *Client, roomName string) {
+func (s *Service) handleJoinRoom(client Client, roomName string) {
 	logger := s.logger.WithFields(logrus.Fields{
 		"roomName": roomName,
 		"clientId": client.Id(),
@@ -131,7 +131,7 @@ func (s *Service) handleJoinRoom(client *Client, roomName string) {
 	room.(*Room).StartIfReady()
 }
 
-func (s *Service) handleMark(client *Client, marker string) {
+func (s *Service) handleMark(client Client, marker string) {
 	logger := s.logger.WithField("clientId", client.Id())
 
 	position, err := strconv.ParseInt(marker, 10, 64)
